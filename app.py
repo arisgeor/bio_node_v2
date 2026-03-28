@@ -13,10 +13,9 @@ import busio
 import adafruit_sgp30
 
 #MLX60614 imports
-#import adafruit_mlx90614 # uncomment on next integrate
+import adafruit_mlx90614
 
 #MAX30102/MAX30105 imports
-
 
 
 app = Flask(__name__)
@@ -36,6 +35,18 @@ except Exception as e:
     _sgp30 = None
     SGP30_AVAILABLE = False
     print(f"SGP30 init failed: {e}")
+
+    # MLX90614 setup
+try:
+    _mlx = adafruit_mlx90614.MLX90614(_i2c)
+    MLX_AVAILABLE = True
+    print("MLX90614 initialized.")
+except Exception as e:
+    _mlx = None
+    MLX_AVAILABLE = False
+    print(f"MLX90614 init failed: {e}")
+
+# -------------------------------------------------------    
 
 # Thresholds for rough demo logic
 TEMP_HIGH_C = 37.8
@@ -103,11 +114,13 @@ def read_real_spo2() -> Optional[int]:
 
 
 def read_real_temperature() -> Optional[float]:
-    """
-    Replace this with your MLX90614 logic.
-    Return float temperature in C or None if read fails.
-    """
-    return None
+    if not MLX_AVAILABLE:
+        return None
+    try:
+        return round(float(_mlx.object_temperature), 1)
+    except Exception as e:
+        print(f"MLX90614 read error: {e}")
+        return None
 
 
 def read_real_eco2() -> Optional[int]:
@@ -131,16 +144,12 @@ def read_real_tvoc() -> Optional[int]:
         print(f"SGP30 TVOC read error: {e}")
         return None
 
-
-
-
-
-
 # -----------------------------
 # UNIFIED SENSOR ACCESS
 # -----------------------------
 
 MOCK_SGP30 = False     # real sensor live
+MOCK_MLX = False       # real sensor live
 MOCK_PHYSIO = True     # MAX30102 + MLX90614 still mock
 
 def get_heart_rate() -> Optional[int]:
@@ -150,7 +159,7 @@ def get_spo2() -> Optional[int]:
     return read_mock_spo2() if MOCK_PHYSIO else read_real_spo2()
 
 def get_temperature() -> Optional[float]:
-    return read_mock_temperature() if MOCK_PHYSIO else read_real_temperature()
+    return read_mock_temperature() if MOCK_MLX else read_real_temperature()
 
 def get_tvoc() -> Optional[int]:
     return read_mock_tvoc() if MOCK_SGP30 else read_real_tvoc()
