@@ -7,12 +7,35 @@ from typing import Optional
 
 from flask import Flask, jsonify, render_template
 
+#SPG30 imports
+import board
+import busio
+import adafruit_sgp30
+
+#MLX60614 imports
+#import adafruit_mlx90614 # uncomment on next integrate
+
+#MAX30102/MAX30105 imports
+
+
+
 app = Flask(__name__)
 
 # -----------------------------
 # CONFIG
 # -----------------------------
-USE_MOCK_DATA = True
+
+# SGP30 setup
+try:
+    _i2c = busio.I2C(board.SCL, board.SDA, frequency=100000)
+    _sgp30 = adafruit_sgp30.Adafruit_SGP30(_i2c)
+    _sgp30.iaq_init()
+    SGP30_AVAILABLE = True
+    print("SGP30 initialized.")
+except Exception as e:
+    _sgp30 = None
+    SGP30_AVAILABLE = False
+    print(f"SGP30 init failed: {e}")
 
 # Thresholds for rough demo logic
 TEMP_HIGH_C = 37.8
@@ -87,42 +110,53 @@ def read_real_temperature() -> Optional[float]:
     return None
 
 
-def read_real_tvoc() -> Optional[int]:
-    """
-    Replace this later with SGP30 logic if/when ready.
-    """
-    return None
-
-
 def read_real_eco2() -> Optional[int]:
-    """
-    Replace this later with SGP30 logic if/when ready.
-    """
-    return None
+    if not SGP30_AVAILABLE:
+        return None
+    try:
+        eco2, tvoc = _sgp30.iaq_measure()
+        return int(eco2)
+    except Exception as e:
+        print(f"SGP30 eCO2 read error: {e}")
+        return None
+    
+
+def read_real_tvoc() -> Optional[int]:
+    if not SGP30_AVAILABLE:
+        return None
+    try:
+        eco2, tvoc = _sgp30.iaq_measure()
+        return int(tvoc)
+    except Exception as e:
+        print(f"SGP30 TVOC read error: {e}")
+        return None
+
+
+
+
 
 
 # -----------------------------
 # UNIFIED SENSOR ACCESS
 # -----------------------------
-def get_heart_rate() -> Optional[int]:
-    return read_mock_heart_rate() if USE_MOCK_DATA else read_real_heart_rate()
 
+MOCK_SGP30 = False     # real sensor live
+MOCK_PHYSIO = True     # MAX30102 + MLX90614 still mock
+
+def get_heart_rate() -> Optional[int]:
+    return read_mock_heart_rate() if MOCK_PHYSIO else read_real_heart_rate()
 
 def get_spo2() -> Optional[int]:
-    return read_mock_spo2() if USE_MOCK_DATA else read_real_spo2()
-
+    return read_mock_spo2() if MOCK_PHYSIO else read_real_spo2()
 
 def get_temperature() -> Optional[float]:
-    return read_mock_temperature() if USE_MOCK_DATA else read_real_temperature()
-
+    return read_mock_temperature() if MOCK_PHYSIO else read_real_temperature()
 
 def get_tvoc() -> Optional[int]:
-    return read_mock_tvoc() if USE_MOCK_DATA else read_real_tvoc()
-
+    return read_mock_tvoc() if MOCK_SGP30 else read_real_tvoc()
 
 def get_eco2() -> Optional[int]:
-    return read_mock_eco2() if USE_MOCK_DATA else read_real_eco2()
-
+    return read_mock_eco2() if MOCK_SGP30 else read_real_eco2()
 
 # -----------------------------
 # ALERT LOGIC
