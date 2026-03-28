@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BioNode v2 Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 24px;
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 2rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .card {
+      background: #1e293b;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    }
+    .label {
+      color: #94a3b8;
+      font-size: 0.9rem;
+      margin-bottom: 8px;
+    }
+    .value {
+      font-size: 2rem;
+      font-weight: bold;
+    }
+    .normal { color: #22c55e; }
+    .warning { color: #f59e0b; }
+    .critical { color: #ef4444; }
+
+    #alerts {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 12px;
+      background: #111827;
+    }
+
+    ul {
+      margin: 8px 0 0 20px;
+    }
+
+    .timestamp {
+      margin-top: 12px;
+      color: #94a3b8;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>BioNode v2 Live Dashboard</h1>
+
+  <div class="grid">
+    <div class="card">
+      <div class="label">Heart Rate</div>
+      <div class="value" id="hr">--</div>
+    </div>
+    <div class="card">
+      <div class="label">SpO2</div>
+      <div class="value" id="spo2">--</div>
+    </div>
+    <div class="card">
+      <div class="label">Body Temperature</div>
+      <div class="value" id="temp">--</div>
+    </div>
+    <div class="card">
+      <div class="label">TVOC</div>
+      <div class="value" id="tvoc">--</div>
+    </div>
+    <div class="card">
+      <div class="label">eCO2</div>
+      <div class="value" id="eco2">--</div>
+    </div>
+    <div class="card">
+      <div class="label">System State</div>
+      <div class="value" id="state">--</div>
+    </div>
+  </div>
+
+  <div id="alerts">
+    <strong>Alerts</strong>
+    <div id="alerts-content">No data yet.</div>
+    <div class="timestamp" id="timestamp"></div>
+  </div>
+
+  <script>
+    async function fetchVitals() {
+      try {
+        const response = await fetch('/api/vitals');
+        const data = await response.json();
+
+        document.getElementById('hr').textContent =
+          data.heart_rate_bpm !== null ? `${data.heart_rate_bpm} bpm` : '--';
+
+        document.getElementById('spo2').textContent =
+          data.spo2_percent !== null ? `${data.spo2_percent} %` : '--';
+
+        document.getElementById('temp').textContent =
+          data.body_temp_c !== null ? `${data.body_temp_c.toFixed(1)} °C` : '--';
+
+        document.getElementById('tvoc').textContent =
+          data.tvoc_ppb !== null ? `${data.tvoc_ppb} ppb` : '--';
+
+        document.getElementById('eco2').textContent =
+          data.eco2_ppm !== null ? `${data.eco2_ppm} ppm` : '--';
+
+        const stateEl = document.getElementById('state');
+        stateEl.textContent = data.alert_level.toUpperCase();
+        stateEl.className = `value ${data.alert_level}`;
+
+        const alertsContent = document.getElementById('alerts-content');
+        if (data.alerts && data.alerts.length > 0) {
+          alertsContent.innerHTML = `<ul>${data.alerts.map(a => `<li>${a}</li>`).join('')}</ul>`;
+        } else {
+          alertsContent.textContent = 'No active alerts.';
+        }
+
+        const dt = new Date(data.timestamp * 1000);
+        document.getElementById('timestamp').textContent =
+          `Last update: ${dt.toLocaleTimeString()}`;
+      } catch (err) {
+        document.getElementById('alerts-content').textContent =
+          `Error fetching data: ${err}`;
+      }
+    }
+
+    fetchVitals();
+    setInterval(fetchVitals, 2000);
+  </script>
+</body>
+</html>
