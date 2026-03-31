@@ -20,6 +20,9 @@ import sys
 sys.path.insert(0, '/home/aris/bio_node_v2')
 from DFRobot_BloodOxygen_S import DFRobot_BloodOxygen_S_i2c
 
+#BME280 imports
+from adafruit_bme280 import basic as adafruit_bme280
+
 
 app = Flask(__name__)
 
@@ -70,6 +73,15 @@ except Exception as e:
 
 # -------------------------------------------------------    
 
+# BME280 setup
+try:
+    _bme280 = adafruit_bme280.Adafruit_BME280_I2C(_i2c, address=0x77)
+    BME280_AVAILABLE = True
+    print("BME280 initialized.")
+except Exception as e:
+    _bme280 = None
+    BME280_AVAILABLE = False
+    print(f"BME280 init failed: {e}")
 
 # Thresholds for rough demo logic
 TEMP_HIGH_C = 35.5
@@ -89,9 +101,11 @@ class Vitals:
     body_temp_c: Optional[float]
     tvoc_ppb: Optional[int]
     eco2_ppm: Optional[int]
+    ambient_temp_c: Optional[float]
+    humidity_percent: Optional[float]
+    pressure_hpa: Optional[float]
     alert_level: str
     alerts: list[str]
-
 
 # -----------------------------
 # MOCK SENSOR READERS
@@ -112,11 +126,21 @@ def read_mock_tvoc() -> Optional[int]:
 def read_mock_eco2() -> Optional[int]:
     return random.randint(450, 900)
 
+def read_mock_ambient_temp() -> Optional[float]:
+    return round(random.uniform(20.0, 25.0), 1)
+
+def read_mock_humidity() -> Optional[float]:
+    return round(random.uniform(35.0, 55.0), 1)
+
+def read_mock_pressure() -> Optional[float]:
+    return round(random.uniform(985.0, 1015.0), 1)
+
 
 # -----------------------------
 # REAL SENSOR READERS
-# Replace these later
 # -----------------------------
+
+#MAX30102
 def read_real_heart_rate() -> Optional[int]:
     if not MAX30102_AVAILABLE:
         return None
@@ -129,7 +153,6 @@ def read_real_heart_rate() -> Optional[int]:
     except Exception as e:
         print(f"MAX30102 HR read error: {e}")
         return None
-
 
 def read_real_spo2() -> Optional[int]:
     if not MAX30102_AVAILABLE:
@@ -144,7 +167,7 @@ def read_real_spo2() -> Optional[int]:
         print(f"MAX30102 SpO2 read error: {e}")
         return None
 
-
+#MLX90614
 def read_real_temperature() -> Optional[float]:
     if not MLX_AVAILABLE:
         return None
@@ -153,8 +176,8 @@ def read_real_temperature() -> Optional[float]:
     except Exception as e:
         print(f"MLX90614 read error: {e}")
         return None
-
-
+    
+#SPG30 
 def read_real_eco2() -> Optional[int]:
     if not SGP30_AVAILABLE:
         return None
@@ -165,7 +188,6 @@ def read_real_eco2() -> Optional[int]:
         print(f"SGP30 eCO2 read error: {e}")
         return None
     
-
 def read_real_tvoc() -> Optional[int]:
     if not SGP30_AVAILABLE:
         return None
@@ -176,6 +198,34 @@ def read_real_tvoc() -> Optional[int]:
         print(f"SGP30 TVOC read error: {e}")
         return None
 
+#ΒΜΕ280
+def read_real_ambient_temp() -> Optional[float]:
+    if not BME280_AVAILABLE:
+        return None
+    try:
+        return round(float(_bme280.temperature), 1)
+    except Exception as e:
+        print(f"BME280 temp read error: {e}")
+        return None
+
+def read_real_humidity() -> Optional[float]:
+    if not BME280_AVAILABLE:
+        return None
+    try:
+        return round(float(_bme280.relative_humidity), 1)
+    except Exception as e:
+        print(f"BME280 humidity read error: {e}")
+        return None
+
+def read_real_pressure() -> Optional[float]:
+    if not BME280_AVAILABLE:
+        return None
+    try:
+        return round(float(_bme280.pressure), 1)
+    except Exception as e:
+        print(f"BME280 pressure read error: {e}")
+        return None
+
 # -----------------------------
 # UNIFIED SENSOR ACCESS
 # -----------------------------
@@ -183,6 +233,7 @@ def read_real_tvoc() -> Optional[int]:
 MOCK_SGP30 = False     # real sensor live
 MOCK_MLX = False        # real sensor live
 MOCK_PHYSIO = False     # real sensor live
+MOCK_BME280 = False    # real sensor live
 
 def get_heart_rate() -> Optional[int]:
     return read_mock_heart_rate() if MOCK_PHYSIO else read_real_heart_rate()
@@ -198,6 +249,15 @@ def get_tvoc() -> Optional[int]:
 
 def get_eco2() -> Optional[int]:
     return read_mock_eco2() if MOCK_SGP30 else read_real_eco2()
+
+def get_ambient_temp() -> Optional[float]:
+    return read_mock_ambient_temp() if MOCK_BME280 else read_real_ambient_temp()
+
+def get_humidity() -> Optional[float]:
+    return read_mock_humidity() if MOCK_BME280 else read_real_humidity()
+
+def get_pressure() -> Optional[float]:
+    return read_mock_pressure() if MOCK_BME280 else read_real_pressure()
 
 # -----------------------------
 # ALERT LOGIC
@@ -250,6 +310,9 @@ def collect_vitals() -> Vitals:
     body_temp_c = get_temperature()
     tvoc_ppb = get_tvoc()
     eco2_ppm = get_eco2()
+    ambient_temp_c = get_ambient_temp()
+    humidity_percent = get_humidity()
+    pressure_hpa = get_pressure()
 
     alert_level, alerts = evaluate_alerts(
         heart_rate_bpm=heart_rate_bpm,
@@ -266,6 +329,9 @@ def collect_vitals() -> Vitals:
         body_temp_c=body_temp_c,
         tvoc_ppb=tvoc_ppb,
         eco2_ppm=eco2_ppm,
+        ambient_temp_c=ambient_temp_c,
+        humidity_percent=humidity_percent,
+        pressure_hpa=pressure_hpa,
         alert_level=alert_level,
         alerts=alerts,
     )
@@ -284,12 +350,15 @@ def api_vitals():
     vitals = collect_vitals()
     data = asdict(vitals)
     data['mock'] = {
-        'heart_rate': MOCK_PHYSIO,
-        'spo2': MOCK_PHYSIO,
-        'temperature': MOCK_MLX,
-        'tvoc': MOCK_SGP30,
-        'eco2': MOCK_SGP30,
-    }
+    'heart_rate': MOCK_PHYSIO,
+    'spo2': MOCK_PHYSIO,
+    'temperature': MOCK_MLX,
+    'tvoc': MOCK_SGP30,
+    'eco2': MOCK_SGP30,
+    'ambient_temp': MOCK_BME280,
+    'humidity': MOCK_BME280,
+    'pressure': MOCK_BME280,
+}
     return jsonify(data)
 
 

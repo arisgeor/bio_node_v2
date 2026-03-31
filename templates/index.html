@@ -84,6 +84,18 @@
       <div class="value" id="eco2">--</div>
     </div>
     <div class="card">
+      <div class="label">Ambient Temp</div>
+      <div class="value" id="ambient_temp">--</div>
+    </div>
+    <div class="card">
+      <div class="label">Humidity</div>
+      <div class="value" id="humidity">--</div>
+    </div>
+    <div class="card">
+      <div class="label">Pressure</div>
+      <div class="value" id="pressure">--</div>
+    </div>    
+    <div class="card">
       <div class="label">System State</div>
       <div class="value" id="state">--</div>
     </div>
@@ -118,6 +130,15 @@
 
         document.getElementById('eco2').innerHTML =
           (data.eco2_ppm !== null ? `${data.eco2_ppm} ppm` : '--') + (mock.eco2 ? mockTag : '');
+
+        document.getElementById('ambient_temp').innerHTML =
+          (data.ambient_temp_c !== null ? `${data.ambient_temp_c.toFixed(1)} °C` : '--') + (mock.ambient_temp ? mockTag : '');
+
+        document.getElementById('humidity').innerHTML =
+          (data.humidity_percent !== null ? `${data.humidity_percent.toFixed(1)} %` : '--') + (mock.humidity ? mockTag : '');
+
+        document.getElementById('pressure').innerHTML =
+          (data.pressure_hpa !== null ? `${data.pressure_hpa.toFixed(1)} hPa` : '--') + (mock.pressure ? mockTag : '');
 
         const stateEl = document.getElementById('state');
         stateEl.textContent = data.alert_level.toUpperCase();
