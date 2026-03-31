@@ -15,7 +15,10 @@ import adafruit_sgp30
 #MLX60614 imports
 import adafruit_mlx90614
 
-#MAX30102/MAX30105 imports
+#MAX30102 imports
+import sys
+sys.path.insert(0, '/home/aris/bio_node_v2')
+from DFRobot_BloodOxygen_S import DFRobot_BloodOxygen_S_i2c
 
 
 app = Flask(__name__)
@@ -36,7 +39,9 @@ except Exception as e:
     SGP30_AVAILABLE = False
     print(f"SGP30 init failed: {e}")
 
-    # MLX90614 setup
+# -------------------------------------------------------    
+
+# MLX90614 setup
 try:
     _mlx = adafruit_mlx90614.MLX90614(_i2c)
     MLX_AVAILABLE = True
@@ -47,6 +52,24 @@ except Exception as e:
     print(f"MLX90614 init failed: {e}")
 
 # -------------------------------------------------------    
+
+# MAX30102 (DFRobot Gravity) setup
+try:
+    _max30102 = DFRobot_BloodOxygen_S_i2c(bus=1, addr=0x57)
+    if _max30102.begin():
+        _max30102.sensor_start_collect()
+        MAX30102_AVAILABLE = True
+        print("MAX30102 initialized.")
+    else:
+        MAX30102_AVAILABLE = False
+        print("MAX30102 begin() failed.")
+except Exception as e:
+    _max30102 = None
+    MAX30102_AVAILABLE = False
+    print(f"MAX30102 init failed: {e}")
+
+# -------------------------------------------------------    
+
 
 # Thresholds for rough demo logic
 TEMP_HIGH_C = 37.8
@@ -98,19 +121,31 @@ def read_mock_eco2() -> Optional[int]:
 # Replace these later
 # -----------------------------
 def read_real_heart_rate() -> Optional[int]:
-    """
-    Replace this with your MAX30102/MAX30105 logic.
-    Return an integer BPM or None if read fails.
-    """
-    return None
+    if not MAX30102_AVAILABLE:
+        return None
+    try:
+        _max30102.get_heartbeat_SPO2()
+        hr = _max30102.heartbeat
+        if hr == -1:
+            return None
+        return int(hr)
+    except Exception as e:
+        print(f"MAX30102 HR read error: {e}")
+        return None
 
 
 def read_real_spo2() -> Optional[int]:
-    """
-    Replace this with your MAX30102/MAX30105 logic.
-    Return integer SpO2 or None if read fails.
-    """
-    return None
+    if not MAX30102_AVAILABLE:
+        return None
+    try:
+        _max30102.get_heartbeat_SPO2()
+        spo2 = _max30102.SPO2
+        if spo2 == -1:
+            return None
+        return int(spo2)
+    except Exception as e:
+        print(f"MAX30102 SpO2 read error: {e}")
+        return None
 
 
 def read_real_temperature() -> Optional[float]:
@@ -149,8 +184,8 @@ def read_real_tvoc() -> Optional[int]:
 # -----------------------------
 
 MOCK_SGP30 = False     # real sensor live
-MOCK_MLX = False       # real sensor live
-MOCK_PHYSIO = True     # MAX30102 + MLX90614 still mock
+MOCK_MLX = False        # real sensor live
+MOCK_PHYSIO = False     # real sensor live
 
 def get_heart_rate() -> Optional[int]:
     return read_mock_heart_rate() if MOCK_PHYSIO else read_real_heart_rate()
