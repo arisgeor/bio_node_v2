@@ -72,7 +72,7 @@ except Exception as e:
 
 
 # Thresholds for rough demo logic
-TEMP_HIGH_C = 37.8
+TEMP_HIGH_C = 35.5
 HR_HIGH_BPM = 110
 SPO2_LOW = 94
 TVOC_HIGH_PP_B = 400  # optional if you add SGP30 later
@@ -95,22 +95,19 @@ class Vitals:
 
 # -----------------------------
 # MOCK SENSOR READERS
+# Usuful when testing without hardware
 # -----------------------------
 def read_mock_heart_rate() -> Optional[int]:
     return random.randint(68, 92)
 
-
 def read_mock_spo2() -> Optional[int]:
     return random.randint(95, 99)
-
 
 def read_mock_temperature() -> Optional[float]:
     return round(random.uniform(36.2, 37.4), 1)
 
-
 def read_mock_tvoc() -> Optional[int]:
     return random.randint(40, 180)
-
 
 def read_mock_eco2() -> Optional[int]:
     return random.randint(450, 900)
