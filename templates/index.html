@@ -101,20 +101,23 @@
         const response = await fetch('/api/vitals');
         const data = await response.json();
 
-        document.getElementById('hr').textContent =
-          data.heart_rate_bpm !== null ? `${data.heart_rate_bpm} bpm` : '--';
+        const mock = data.mock || {};
+        const mockTag = ' <span style="color:#f59e0b;font-size:0.6em;">[MOCK]</span>';
 
-        document.getElementById('spo2').textContent =
-          data.spo2_percent !== null ? `${data.spo2_percent} %` : '--';
+        document.getElementById('hr').innerHTML =
+          (data.heart_rate_bpm !== null ? `${data.heart_rate_bpm} bpm` : '--') + (mock.heart_rate ? mockTag : '');
 
-        document.getElementById('temp').textContent =
-          data.body_temp_c !== null ? `${data.body_temp_c.toFixed(1)} °C` : '--';
+        document.getElementById('spo2').innerHTML =
+          (data.spo2_percent !== null ? `${data.spo2_percent} %` : '--') + (mock.spo2 ? mockTag : '');
 
-        document.getElementById('tvoc').textContent =
-          data.tvoc_ppb !== null ? `${data.tvoc_ppb} ppb` : '--';
+        document.getElementById('temp').innerHTML =
+          (data.body_temp_c !== null ? `${data.body_temp_c.toFixed(1)} °C` : '--') + (mock.temperature ? mockTag : '');
 
-        document.getElementById('eco2').textContent =
-          data.eco2_ppm !== null ? `${data.eco2_ppm} ppm` : '--';
+        document.getElementById('tvoc').innerHTML =
+          (data.tvoc_ppb !== null ? `${data.tvoc_ppb} ppb` : '--') + (mock.tvoc ? mockTag : '');
+
+        document.getElementById('eco2').innerHTML =
+          (data.eco2_ppm !== null ? `${data.eco2_ppm} ppm` : '--') + (mock.eco2 ? mockTag : '');
 
         const stateEl = document.getElementById('state');
         stateEl.textContent = data.alert_level.toUpperCase();

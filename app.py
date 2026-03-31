@@ -282,7 +282,15 @@ def index():
 @app.route("/api/vitals")
 def api_vitals():
     vitals = collect_vitals()
-    return jsonify(asdict(vitals))
+    data = asdict(vitals)
+    data['mock'] = {
+        'heart_rate': MOCK_PHYSIO,
+        'spo2': MOCK_PHYSIO,
+        'temperature': MOCK_MLX,
+        'tvoc': MOCK_SGP30,
+        'eco2': MOCK_SGP30,
+    }
+    return jsonify(data)
 
 
 if __name__ == "__main__":
