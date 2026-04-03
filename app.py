@@ -163,12 +163,13 @@ def read_real_heart_rate() -> Optional[int]:
     try:
         _max30102.get_heartbeat_SPO2()
         hr = _max30102.heartbeat
-        if hr == -1:
+        if hr == -1 or hr == 0 or hr > 200:
             return None
         return int(hr)
     except Exception as e:
         print(f"MAX30102 HR read error: {e}")
         return None
+
 
 def read_real_spo2() -> Optional[int]:
     if not MAX30102_AVAILABLE:
@@ -176,7 +177,7 @@ def read_real_spo2() -> Optional[int]:
     try:
         _max30102.get_heartbeat_SPO2()
         spo2 = _max30102.SPO2
-        if spo2 == -1:
+        if spo2 == -1 or spo2 == 0 or spo2 < 70:
             return None
         return int(spo2)
     except Exception as e:
