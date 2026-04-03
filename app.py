@@ -25,6 +25,7 @@ from adafruit_bme280 import basic as adafruit_bme280
 
 #BH1750 imports
 import adafruit_bh1750
+from adafruit_extended_bus import ExtendedI2C
 
 
 app = Flask(__name__)
@@ -74,7 +75,7 @@ except Exception as e:
     MAX30102_AVAILABLE = False
     print(f"MAX30102 init failed: {e}")
 
-# -------------------------------------------------------    
+# -------------------------------------------------------
 
 # BME280 setup
 try:
@@ -86,21 +87,24 @@ except Exception as e:
     BME280_AVAILABLE = False
     print(f"BME280 init failed: {e}")
 
+# -------------------------------------------------------    
+
+# BH1750 setup (on I2C bus 3 — separate bus to avoid SGP30 conflict)
+try:
+    _i2c3 = ExtendedI2C(3)
+    _bh1750 = adafruit_bh1750.BH1750(_i2c3, address=0x23)
+    BH1750_AVAILABLE = True
+    print("BH1750 initialized on bus 3.")
+except Exception as e:
+    _bh1750 = None
+    BH1750_AVAILABLE = False
+    print(f"BH1750 init failed: {e}")
+
 # Thresholds for rough demo logic
 TEMP_HIGH_C = 35.5
 HR_HIGH_BPM = 110
 SPO2_LOW = 94
 TVOC_HIGH_PP_B = 400  # optional if you add SGP30 later
-
-# BH1750 setup
-try:
-    _bh1750 = adafruit_bh1750.BH1750(_i2c, address=0x23)
-    BH1750_AVAILABLE = True
-    print("BH1750 initialized.")
-except Exception as e:
-    _bh1750 = None
-    BH1750_AVAILABLE = False
-    print(f"BH1750 init failed: {e}")
 
 
 # -----------------------------
@@ -262,7 +266,7 @@ MOCK_SGP30 = False     # real sensor live
 MOCK_MLX = False        # real sensor live
 MOCK_PHYSIO = False     # real sensor live
 MOCK_BME280 = False    # real sensor live
-MOCK_BH1750 = True    # real sensor pending
+MOCK_BH1750 = False    # real sensor live
 
 def get_heart_rate() -> Optional[int]:
     return read_mock_heart_rate() if MOCK_PHYSIO else read_real_heart_rate()
