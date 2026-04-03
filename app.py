@@ -242,14 +242,6 @@ def read_real_pressure() -> Optional[float]:
         print(f"BME280 pressure read error: {e}")
         return None
 
-def read_real_light() -> Optional[float]:
-    if not BH1750_AVAILABLE:
-        return None
-    try:
-        return round(float(_bh1750.lux), 1)
-    except Exception as e:
-        print(f"BH1750 read error: {e}")
-        return None
 
 #ΒH1750
 def read_real_light() -> Optional[float]:
@@ -307,6 +299,7 @@ def evaluate_alerts(
     body_temp_c: Optional[float],
     tvoc_ppb: Optional[int],
     eco2_ppm: Optional[int],
+    light_lux: Optional[float]
 ) -> tuple[str, list[str]]:
     alerts: list[str] = []
 
@@ -373,6 +366,7 @@ def collect_vitals() -> Vitals:
         ambient_temp_c=ambient_temp_c,
         humidity_percent=humidity_percent,
         pressure_hpa=pressure_hpa,
+        light_lux=light_lux,
         alert_level=alert_level,
         alerts=alerts,
     )
