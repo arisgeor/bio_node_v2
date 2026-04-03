@@ -94,6 +94,10 @@
     <div class="card">
       <div class="label">Pressure</div>
       <div class="value" id="pressure">--</div>
+    </div>
+    <div class="card">
+      <div class="label">Ambient Light</div>
+      <div class="value" id="light">--</div>
     </div>    
     <div class="card">
       <div class="label">System State</div>
@@ -139,6 +143,9 @@
 
         document.getElementById('pressure').innerHTML =
           (data.pressure_hpa !== null ? `${data.pressure_hpa.toFixed(1)} hPa` : '--') + (mock.pressure ? mockTag : '');
+
+        document.getElementById('light').innerHTML =
+          (data.light_lux !== null ? `${data.light_lux.toFixed(1)} lux` : '--') + (mock.light ? mockTag : '');
 
         const stateEl = document.getElementById('state');
         stateEl.textContent = data.alert_level.toUpperCase();

@@ -23,6 +23,9 @@ from DFRobot_BloodOxygen_S import DFRobot_BloodOxygen_S_i2c
 #BME280 imports
 from adafruit_bme280 import basic as adafruit_bme280
 
+#BH1750 imports
+import adafruit_bh1750
+
 
 app = Flask(__name__)
 
@@ -89,6 +92,16 @@ HR_HIGH_BPM = 110
 SPO2_LOW = 94
 TVOC_HIGH_PP_B = 400  # optional if you add SGP30 later
 
+# BH1750 setup
+try:
+    _bh1750 = adafruit_bh1750.BH1750(_i2c, address=0x23)
+    BH1750_AVAILABLE = True
+    print("BH1750 initialized.")
+except Exception as e:
+    _bh1750 = None
+    BH1750_AVAILABLE = False
+    print(f"BH1750 init failed: {e}")
+
 
 # -----------------------------
 # DATA MODEL
@@ -104,6 +117,7 @@ class Vitals:
     ambient_temp_c: Optional[float]
     humidity_percent: Optional[float]
     pressure_hpa: Optional[float]
+    light_lux: Optional[float]
     alert_level: str
     alerts: list[str]
 
@@ -135,6 +149,8 @@ def read_mock_humidity() -> Optional[float]:
 def read_mock_pressure() -> Optional[float]:
     return round(random.uniform(985.0, 1015.0), 1)
 
+def read_mock_light() -> Optional[float]:
+    return round(random.uniform(100.0, 500.0), 1)
 
 # -----------------------------
 # REAL SENSOR READERS
@@ -226,6 +242,25 @@ def read_real_pressure() -> Optional[float]:
         print(f"BME280 pressure read error: {e}")
         return None
 
+def read_real_light() -> Optional[float]:
+    if not BH1750_AVAILABLE:
+        return None
+    try:
+        return round(float(_bh1750.lux), 1)
+    except Exception as e:
+        print(f"BH1750 read error: {e}")
+        return None
+
+#ΒH1750
+def read_real_light() -> Optional[float]:
+    if not BH1750_AVAILABLE:
+        return None
+    try:
+        return round(float(_bh1750.lux), 1)
+    except Exception as e:
+        print(f"BH1750 read error: {e}")
+        return None
+
 # -----------------------------
 # UNIFIED SENSOR ACCESS
 # -----------------------------
@@ -234,6 +269,7 @@ MOCK_SGP30 = False     # real sensor live
 MOCK_MLX = False        # real sensor live
 MOCK_PHYSIO = False     # real sensor live
 MOCK_BME280 = False    # real sensor live
+MOCK_BH1750 = True    # real sensor pending
 
 def get_heart_rate() -> Optional[int]:
     return read_mock_heart_rate() if MOCK_PHYSIO else read_real_heart_rate()
@@ -258,6 +294,9 @@ def get_humidity() -> Optional[float]:
 
 def get_pressure() -> Optional[float]:
     return read_mock_pressure() if MOCK_BME280 else read_real_pressure()
+
+def get_light() -> Optional[float]:
+    return read_mock_light() if MOCK_BH1750 else read_real_light()
 
 # -----------------------------
 # ALERT LOGIC
@@ -313,6 +352,7 @@ def collect_vitals() -> Vitals:
     ambient_temp_c = get_ambient_temp()
     humidity_percent = get_humidity()
     pressure_hpa = get_pressure()
+    light_lux = get_light()
 
     alert_level, alerts = evaluate_alerts(
         heart_rate_bpm=heart_rate_bpm,
@@ -320,6 +360,7 @@ def collect_vitals() -> Vitals:
         body_temp_c=body_temp_c,
         tvoc_ppb=tvoc_ppb,
         eco2_ppm=eco2_ppm,
+        light_lux=light_lux,
     )
 
     return Vitals(
@@ -358,6 +399,7 @@ def api_vitals():
     'ambient_temp': MOCK_BME280,
     'humidity': MOCK_BME280,
     'pressure': MOCK_BME280,
+    'light': MOCK_BH1750,
 }
     return jsonify(data)
 
