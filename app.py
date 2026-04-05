@@ -100,11 +100,44 @@ except Exception as e:
     BH1750_AVAILABLE = False
     print(f"BH1750 init failed: {e}")
 
-# Thresholds for rough demo logic
-TEMP_HIGH_C = 35.5
-HR_HIGH_BPM = 110
-SPO2_LOW = 94
-TVOC_HIGH_PP_B = 400  # optional if you add SGP30 later
+# -----------------------------
+# THRESHOLDS (sourced)
+# -----------------------------
+# SpO2 — WMS 2024 Clinical Practice Guidelines
+SPO2_CAUTION = 94       # below this: caution
+SPO2_CRITICAL = 90      # below this: critical
+
+# Heart rate — AHA tachycardia definition + field medicine
+HR_HIGH_CAUTION = 100   # above this: caution
+HR_HIGH_CRITICAL = 120  # above this: critical
+HR_LOW_CAUTION = 50     # below this: caution
+HR_LOW_CRITICAL = 40    # below this: critical
+
+# Surface temp — IR forehead thermometry studies
+STEMP_HIGH_CAUTION = 35.6   # above this: caution
+STEMP_HIGH_CRITICAL = 37.0  # above this: critical
+STEMP_LOW_CAUTION = 30.0    # below this: caution
+STEMP_LOW_CRITICAL = 28.0   # below this: critical
+
+# eCO2 — international indoor air quality guidelines (proxy via SGP30)
+ECO2_CAUTION = 1000     # above this: caution
+ECO2_CRITICAL = 2000    # above this: critical
+
+# TVOC — German Federal Environment Agency categories
+TVOC_CAUTION = 220      # above this: caution
+TVOC_CRITICAL = 660     # above this: critical
+
+# Ambient temp — WHO housing guidelines / ASHRAE 55
+ATEMP_HIGH_CAUTION = 27.0
+ATEMP_HIGH_CRITICAL = 30.0
+ATEMP_LOW_CAUTION = 17.0
+ATEMP_LOW_CRITICAL = 15.0
+
+# Humidity — ASHRAE 55
+HUMID_HIGH_CAUTION = 61.0
+HUMID_HIGH_CRITICAL = 70.0
+HUMID_LOW_CAUTION = 29.0
+HUMID_LOW_CRITICAL = 20.0
 
 
 # -----------------------------
@@ -301,44 +334,120 @@ def get_light() -> Optional[float]:
 def evaluate_alerts(
     heart_rate_bpm: Optional[int],
     spo2_percent: Optional[int],
-    body_temp_c: Optional[float],
+    surface_temp_c: Optional[float],
     tvoc_ppb: Optional[int],
     eco2_ppm: Optional[int],
-    light_lux: Optional[float]
+    ambient_temp_c: Optional[float],
+    humidity_percent: Optional[float],
+    light_lux: Optional[float],
 ) -> tuple[str, list[str]]:
     alerts: list[str] = []
+    has_critical = False
 
-    if body_temp_c is not None and body_temp_c >= TEMP_HIGH_C:
-        alerts.append(f"High temperature: {body_temp_c:.1f} °C")
+    # --- SpO2 ---
+    if spo2_percent is not None:
+        if spo2_percent < SPO2_CRITICAL:
+            alerts.append(f"CRITICAL — SpO2: {spo2_percent}% (below {SPO2_CRITICAL}%)")
+            has_critical = True
+        elif spo2_percent <= SPO2_CAUTION:
+            alerts.append(f"CAUTION — SpO2: {spo2_percent}% (below {SPO2_CAUTION + 1}%)")
 
-    if heart_rate_bpm is not None and heart_rate_bpm >= HR_HIGH_BPM:
-        alerts.append(f"High heart rate: {heart_rate_bpm} bpm")
+    # --- Heart rate (high) ---
+    if heart_rate_bpm is not None:
+        if heart_rate_bpm > HR_HIGH_CRITICAL:
+            alerts.append(f"CRITICAL — HR: {heart_rate_bpm} bpm (above {HR_HIGH_CRITICAL})")
+            has_critical = True
+        elif heart_rate_bpm > HR_HIGH_CAUTION:
+            alerts.append(f"CAUTION — HR: {heart_rate_bpm} bpm (above {HR_HIGH_CAUTION})")
 
-    if spo2_percent is not None and spo2_percent <= SPO2_LOW:
-        alerts.append(f"Low SpO2: {spo2_percent}%")
+    # --- Heart rate (low) ---
+    if heart_rate_bpm is not None:
+        if heart_rate_bpm < HR_LOW_CRITICAL:
+            alerts.append(f"CRITICAL — HR: {heart_rate_bpm} bpm (below {HR_LOW_CRITICAL})")
+            has_critical = True
+        elif heart_rate_bpm < HR_LOW_CAUTION:
+            alerts.append(f"CAUTION — HR: {heart_rate_bpm} bpm (below {HR_LOW_CAUTION})")
 
-    if tvoc_ppb is not None and tvoc_ppb >= 400:
-        alerts.append(f"High TVOC: {tvoc_ppb} ppb")
+    # --- Surface temperature (high) ---
+    if surface_temp_c is not None:
+        if surface_temp_c > STEMP_HIGH_CRITICAL:
+            alerts.append(f"CRITICAL — Surface temp: {surface_temp_c:.1f}°C (above {STEMP_HIGH_CRITICAL}°C)")
+            has_critical = True
+        elif surface_temp_c > STEMP_HIGH_CAUTION:
+            alerts.append(f"CAUTION — Surface temp: {surface_temp_c:.1f}°C (above {STEMP_HIGH_CAUTION}°C)")
 
-    if eco2_ppm is not None and eco2_ppm >= 1200:
-        alerts.append(f"High eCO2: {eco2_ppm} ppm")
+    # --- Surface temperature (low) ---
+    if surface_temp_c is not None:
+        if surface_temp_c < STEMP_LOW_CRITICAL:
+            alerts.append(f"CRITICAL — Surface temp: {surface_temp_c:.1f}°C (below {STEMP_LOW_CRITICAL}°C)")
+            has_critical = True
+        elif surface_temp_c < STEMP_LOW_CAUTION:
+            alerts.append(f"CAUTION — Surface temp: {surface_temp_c:.1f}°C (below {STEMP_LOW_CAUTION}°C)")
 
-    # crude combined rule
+    # --- eCO2 ---
+    if eco2_ppm is not None:
+        if eco2_ppm > ECO2_CRITICAL:
+            alerts.append(f"CRITICAL — eCO2: {eco2_ppm} ppm (above {ECO2_CRITICAL})")
+            has_critical = True
+        elif eco2_ppm > ECO2_CAUTION:
+            alerts.append(f"CAUTION — eCO2: {eco2_ppm} ppm (above {ECO2_CAUTION})")
+
+    # --- TVOC ---
+    if tvoc_ppb is not None:
+        if tvoc_ppb > TVOC_CRITICAL:
+            alerts.append(f"CRITICAL — TVOC: {tvoc_ppb} ppb (above {TVOC_CRITICAL})")
+            has_critical = True
+        elif tvoc_ppb > TVOC_CAUTION:
+            alerts.append(f"CAUTION — TVOC: {tvoc_ppb} ppb (above {TVOC_CAUTION})")
+
+    # --- Ambient temperature (high) ---
+    if ambient_temp_c is not None:
+        if ambient_temp_c > ATEMP_HIGH_CRITICAL:
+            alerts.append(f"CRITICAL — Ambient temp: {ambient_temp_c:.1f}°C (above {ATEMP_HIGH_CRITICAL}°C)")
+            has_critical = True
+        elif ambient_temp_c > ATEMP_HIGH_CAUTION:
+            alerts.append(f"CAUTION — Ambient temp: {ambient_temp_c:.1f}°C (above {ATEMP_HIGH_CAUTION}°C)")
+
+    # --- Ambient temperature (low) ---
+    if ambient_temp_c is not None:
+        if ambient_temp_c < ATEMP_LOW_CRITICAL:
+            alerts.append(f"CRITICAL — Ambient temp: {ambient_temp_c:.1f}°C (below {ATEMP_LOW_CRITICAL}°C)")
+            has_critical = True
+        elif ambient_temp_c < ATEMP_LOW_CAUTION:
+            alerts.append(f"CAUTION — Ambient temp: {ambient_temp_c:.1f}°C (below {ATEMP_LOW_CAUTION}°C)")
+
+    # --- Humidity (high) ---
+    if humidity_percent is not None:
+        if humidity_percent > HUMID_HIGH_CRITICAL:
+            alerts.append(f"CRITICAL — Humidity: {humidity_percent:.1f}% (above {HUMID_HIGH_CRITICAL}%)")
+            has_critical = True
+        elif humidity_percent > HUMID_HIGH_CAUTION:
+            alerts.append(f"CAUTION — Humidity: {humidity_percent:.1f}% (above {HUMID_HIGH_CAUTION}%)")
+
+    # --- Humidity (low) ---
+    if humidity_percent is not None:
+        if humidity_percent < HUMID_LOW_CRITICAL:
+            alerts.append(f"CRITICAL — Humidity: {humidity_percent:.1f}% (below {HUMID_LOW_CRITICAL}%)")
+            has_critical = True
+        elif humidity_percent < HUMID_LOW_CAUTION:
+            alerts.append(f"CAUTION — Humidity: {humidity_percent:.1f}% (below {HUMID_LOW_CAUTION}%)")
+
+    # --- Combined physiological strain ---
     if (
         heart_rate_bpm is not None
         and spo2_percent is not None
-        and heart_rate_bpm >= 105
-        and spo2_percent <= 94
+        and heart_rate_bpm > HR_HIGH_CAUTION
+        and spo2_percent <= SPO2_CAUTION
     ):
-        alerts.append("Combined physiological strain pattern detected")
+        alerts.append("CRITICAL — Combined physiological strain (elevated HR + low SpO2)")
+        has_critical = True
 
+    # --- Determine system state ---
     if not alerts:
         return "normal", []
-
-    if len(alerts) == 1:
-        return "warning", alerts
-
-    return "critical", alerts
+    if has_critical:
+        return "critical", alerts
+    return "warning", alerts
 
 
 def collect_vitals() -> Vitals:
@@ -355,9 +464,11 @@ def collect_vitals() -> Vitals:
     alert_level, alerts = evaluate_alerts(
         heart_rate_bpm=heart_rate_bpm,
         spo2_percent=spo2_percent,
-        body_temp_c=body_temp_c,
+        surface_temp_c=body_temp_c,
         tvoc_ppb=tvoc_ppb,
         eco2_ppm=eco2_ppm,
+        ambient_temp_c=ambient_temp_c,
+        humidity_percent=humidity_percent,
         light_lux=light_lux,
     )
 
