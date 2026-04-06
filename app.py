@@ -118,8 +118,6 @@ STEMP_HIGH_CAUTION = 35.6   # above this: caution
 STEMP_HIGH_CRITICAL = 37.0  # above this: critical
 # Surface temp low thresholds disabled — only meaningful when sensor
 # is aimed at skin, which cannot be detected automatically in V2
-#STEMP_LOW_CAUTION = 30.0    # below this: caution
-#STEMP_LOW_CRITICAL = 28.0   # below this: critical
 
 # eCO2 — international indoor air quality guidelines (proxy via SGP30)
 ECO2_CAUTION = 1000     # above this: caution
@@ -378,13 +376,7 @@ def evaluate_alerts(
         elif surface_temp_c > STEMP_HIGH_CAUTION:
             alerts.append(f"CAUTION — Surface temp: {surface_temp_c:.1f}°C (above {STEMP_HIGH_CAUTION}°C)")
 
-    # --- Surface temperature (low) ---
-    if surface_temp_c is not None:
-        if surface_temp_c < STEMP_LOW_CRITICAL:
-            alerts.append(f"CRITICAL — Surface temp: {surface_temp_c:.1f}°C (below {STEMP_LOW_CRITICAL}°C)")
-            has_critical = True
-        elif surface_temp_c < STEMP_LOW_CAUTION:
-            alerts.append(f"CAUTION — Surface temp: {surface_temp_c:.1f}°C (below {STEMP_LOW_CAUTION}°C)")
+    # Surface temp low thresholds disabled in V2 — triggers on room
 
     # --- eCO2 ---
     if eco2_ppm is not None:
