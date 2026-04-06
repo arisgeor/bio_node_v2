@@ -116,8 +116,10 @@ HR_LOW_CRITICAL = 40    # below this: critical
 # Surface temp — IR forehead thermometry studies
 STEMP_HIGH_CAUTION = 35.6   # above this: caution
 STEMP_HIGH_CRITICAL = 37.0  # above this: critical
-STEMP_LOW_CAUTION = 30.0    # below this: caution
-STEMP_LOW_CRITICAL = 28.0   # below this: critical
+# Surface temp low thresholds disabled — only meaningful when sensor
+# is aimed at skin, which cannot be detected automatically in V2
+#STEMP_LOW_CAUTION = 30.0    # below this: caution
+#STEMP_LOW_CRITICAL = 28.0   # below this: critical
 
 # eCO2 — international indoor air quality guidelines (proxy via SGP30)
 ECO2_CAUTION = 1000     # above this: caution
@@ -332,6 +334,7 @@ def get_light() -> Optional[float]:
 # ALERT LOGIC
 # -----------------------------
 def evaluate_alerts(
+    # Ambient light (BH1750) is display-only — no alert thresholds in V2
     heart_rate_bpm: Optional[int],
     spo2_percent: Optional[int],
     surface_temp_c: Optional[float],
@@ -339,7 +342,6 @@ def evaluate_alerts(
     eco2_ppm: Optional[int],
     ambient_temp_c: Optional[float],
     humidity_percent: Optional[float],
-    light_lux: Optional[float],
 ) -> tuple[str, list[str]]:
     alerts: list[str] = []
     has_critical = False
@@ -469,7 +471,7 @@ def collect_vitals() -> Vitals:
         eco2_ppm=eco2_ppm,
         ambient_temp_c=ambient_temp_c,
         humidity_percent=humidity_percent,
-        light_lux=light_lux,
+        #light_lux=light_lux,
     )
 
     return Vitals(
