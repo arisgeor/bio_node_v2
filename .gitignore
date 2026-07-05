@@ -1,0 +1,12 @@
+# Live database + WAL sidecars — never commit data
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# CSV exports
+exports/*.csv
