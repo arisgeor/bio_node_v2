@@ -41,19 +41,50 @@ from typing import Optional
 # -----------------------------
 # CONFIG
 # -----------------------------
-DB_PATH = "/home/aris/bio_node_v2/data/bionode.db"
-
+import datetime as _dt
+ 
+# Fixed mission DB file: one continuous file across all reboots. Test-day and
+# mission-day rows co-mingle; pre-mission rows are stripped afterward by date.
+DB_DIR = "/home/aris/bio_node_v2/data"
+DB_PATH = f"{DB_DIR}/aat112_mission.db"
+SCHEMA_PATH = "/home/aris/bio_node_v2/schema.sql"
+ 
 MISSION_NAME = "AAT-112-soak"          # soak test uses its own mission row
 NODE_ID = "bionode-01"
 SITE = "Athens (soak test)"
 ALTITUDE_M = 70.0
-
+ 
 SUBJECT_ID = "aris"
 SAMPLE_INTERVAL_S = 2                    # constant 2s for the soak test
-
+ 
 # SCD30 mission config (must match the validated test)
 SCD30_ALTITUDE_M = 70
 SCD30_ASC_OFF = True
+ 
+ 
+def _ensure_database() -> None:
+    """
+    Make the logger self-sufficient: if the date-stamped DB file does not exist
+    yet, create it from schema.sql and enable WAL. If it already exists (e.g. a
+    restart later the same day), leave it untouched and append.
+    """
+    import os
+    import sqlite3 as _sqlite
+ 
+    os.makedirs(DB_DIR, exist_ok=True)
+    if os.path.exists(DB_PATH):
+        return  # already initialised today — append, don't rebuild
+ 
+    with open(SCHEMA_PATH) as f:
+        schema_sql = f.read()
+    conn = _sqlite.connect(DB_PATH)
+    try:
+        conn.executescript(schema_sql)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.commit()
+    finally:
+        conn.close()
+    print(f"Created new database: {DB_PATH} (schema applied, WAL enabled).")
 
 # -----------------------------
 # SENSOR SETUP
@@ -78,6 +109,8 @@ def ts_utc() -> str:
 
 # --- Primary I2C bus (bus 1) ---
 _i2c = busio.I2C(board.SCL, board.SDA)
+# --- Software I2C bus (bus 3) — for read-sensitive sensors off the main bus ---
+_i2c3 = ExtendedI2C(3)
 
 # SCD30 (primary CO2)
 try:
@@ -94,7 +127,7 @@ except Exception as e:
 
 # SGP30 (TVOC real, eCO2 proxy)
 try:
-    _sgp30 = adafruit_sgp30.Adafruit_SGP30(_i2c)
+    _sgp30 = adafruit_sgp30.Adafruit_SGP30(_i2c3)
     _sgp30.iaq_init()
     SGP30_OK = True
     print("SGP30 initialized.")
@@ -115,7 +148,7 @@ except Exception as e:
 
 # BME280 (cross-check T/RH/pressure)
 try:
-    _bme280 = adafruit_bme280.Adafruit_BME280_I2C(_i2c, address=0x77)
+    _bme280 = adafruit_bme280.Adafruit_BME280_I2C(_i2c3, address=0x77)
     BME280_OK = True
     print("BME280 initialized.")
 except Exception as e:
@@ -140,7 +173,6 @@ except Exception as e:
 
 # --- Software I2C bus (bus 3): BH1750 only ---
 try:
-    _i2c3 = ExtendedI2C(3)
     _bh1750 = adafruit_bh1750.BH1750(_i2c3, address=0x23)
     BH1750_OK = True
     print("BH1750 initialized on bus 3.")
@@ -197,14 +229,25 @@ def read_mlx() -> tuple[Optional[float], Optional[float]]:
 
 
 def read_bme280() -> tuple[Optional[float], Optional[float], Optional[float]]:
-    """Returns (temp_c, rh_pct, pressure_hpa)."""
+    """Returns (temp_c, rh_pct, pressure_hpa). Rejects physically impossible
+    reads (corrupted I2C transfers) by logging None instead of impossible values."""
     if not BME280_OK:
         return None, None, None
     try:
+        t = float(_bme280.temperature)
+        rh = float(_bme280.relative_humidity)
+        p = float(_bme280.pressure)
+        # Plausibility bands — anything outside is a corrupted read, not real.
+        if not (-40.0 <= t <= 85.0):
+            t = None
+        if not (0.0 <= rh <= 100.0):
+            rh = None
+        if not (300.0 <= p <= 1100.0):
+            p = None
         return (
-            round(float(_bme280.temperature), 1),
-            round(float(_bme280.relative_humidity), 1),
-            round(float(_bme280.pressure), 1),
+            round(t, 1) if t is not None else None,
+            round(rh, 1) if rh is not None else None,
+            round(p, 1) if p is not None else None,
         )
     except Exception as e:
         print(f"BME280 read error: {e}")
@@ -303,6 +346,7 @@ def _handle_stop(signum, frame):
 
 
 def main() -> None:
+    _ensure_database()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA foreign_keys = ON;")
 

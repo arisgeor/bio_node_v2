@@ -1,0 +1,15 @@
+[Unit]
+Description=BioNode V2.1 Mission Monitor Dashboard
+After=network.target bionode-logger.service
+
+[Service]
+Type=simple
+User=aris
+WorkingDirectory=/home/aris/bio_node_v2
+ExecStartPre=/bin/sleep 25
+ExecStart=/home/aris/bio_node_v2/.venv/bin/python /home/aris/bio_node_v2/monitor.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

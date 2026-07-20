@@ -6,9 +6,12 @@ After=network.target
 Type=simple
 User=aris
 WorkingDirectory=/home/aris/bio_node_v2
+ExecStartPre=/bin/sleep 20
 ExecStart=/home/aris/bio_node_v2/.venv/bin/python /home/aris/bio_node_v2/logger.py
-Restart=on-failure
-RestartSec=10
+Restart=always
+RestartSec=15
+TimeoutStartSec=90
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
