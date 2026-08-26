@@ -9,4 +9,4 @@ __pycache__/
 *.pyc
 
 # CSV exports
-exports/*.csv
+exports/*.csv*.csv
