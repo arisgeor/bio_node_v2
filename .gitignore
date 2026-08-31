@@ -10,3 +10,6 @@ __pycache__/
 
 # CSV exports
 exports/*.csv*.csv
+__pycache__/
+*.pyc
+exports/

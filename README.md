@@ -1,179 +1,165 @@
-# BioNode V2
+# BioNode V2.1
 
-A multi-sensor physiological and environmental monitoring node built on Raspberry Pi 4. BioNode V2 combines real-time physiological sensing (heart rate, SpO2, skin surface temperature) with environmental monitoring (air quality, atmospheric conditions, ambient light) to detect environmental degradation and its potential physiological impact on occupants of enclosed spaces.
+An autonomous multi-sensor environmental and physiological monitoring node built on Raspberry Pi. BioNode logs the atmosphere of an enclosed habitat continuously and unattended, and was field-deployed for the full duration of a crewed analog space mission.
+
+**Deployment status:** deployed in the common area of AATC Habitat 2.0 (Analog Astronaut Training Center, Poland) for the seven-day crewed analog mission **AAT-112, 24–31 July 2026**, six crew. Logged **302,227 readings** over a 168-hour mission window at **99.85% logging uptime**, with **zero data lost to a real in-mission sensor fault**.
+
+> This branch (`v2.1-logging`) is the as-flown configuration. The `main` branch is the earlier bench prototype: five sensors, proxy eCO₂ only, no persistence. If you want the system described in the paper, you are in the right place.
+
+---
 
 ## What it does
 
-BioNode V2 reads five I2C sensors at 2-second intervals and serves a live dashboard over the local network via Flask. Each reading is evaluated against sourced clinical and occupational thresholds, producing a three-tier system state: **Normal**, **Caution**, or **Critical**. The system is designed for trend monitoring and threshold-based early warning — not clinical diagnosis.
+Six sensors on two I²C buses are read every 2 seconds by a headless logger process and written to a local time-stamped SQLite database. A separate Flask process serves a live dashboard that reads the most recent database record — it never touches the I²C bus, so the display cannot contend with acquisition or stall it.
 
-The core thesis: correlating environmental degradation (rising CO2, declining air quality, temperature extremes) with physiological response (elevated heart rate, declining SpO2) in enclosed or isolated environments.
-
-## Sensors
-
-| Sensor | Measurement | I2C Address | Bus |
-|--------|------------|-------------|-----|
-| MAX30102 (DFRobot Gravity SEN0518) | Heart rate, SpO2 | 0x57 | 1 |
-| MLX90614 | Skin surface temperature (non-contact IR) | 0x5A | 1 |
-| SGP30 | Estimated CO2 (eCO2), Total VOC (TVOC) | 0x58 | 1 |
-| BME280 | Ambient temperature, relative humidity, barometric pressure | 0x77 | 1 |
-| BH1750 | Ambient light intensity | 0x23 | 3 |
-
-The BH1750 runs on a dedicated software I2C bus (GPIO 17/27) to avoid signal interference with the SGP30's CRC-checked protocol on the primary bus.
-
-### Sensor notes
-
-**MAX30102 (DFRobot Gravity SEN0518):** This is not a bare MAX30102 breakout. The DFRobot module includes an onboard V8520 MCU that runs a PPG algorithm and outputs processed heart rate and SpO2 values directly over I2C. The host system does not perform signal processing — it reads computed values from the MCU. Heart rate updates every ~4 seconds. Readings are sensitive to finger placement and pressure. Values during the first 10 seconds after finger placement should be disregarded as the algorithm stabilizes.
-
-**SGP30 (eCO2/TVOC):** The eCO2 and TVOC values are proxy estimates derived from hydrogen and ethanol gas concentrations, not direct measurements of CO2 or individual VOC compounds. Accuracy is approximately ±15%. The sensor requires 15 seconds of warm-up after power-on and benefits from 12+ hours of continuous operation for baseline calibration. These readings are suitable for detecting trends and relative changes in air quality — not for absolute concentration measurement. This limitation must be acknowledged in any reporting context.
-
-**MLX90614:** Measures surface temperature via non-contact infrared sensing. When aimed at a forehead, typical readings are 33–36°C (skin surface), which is lower than core body temperature (36.5–37.5°C). The dashboard labels this "Surface Temp" — never "Body Temperature." Threshold values are calibrated for skin surface readings, not core temperature.
-
-## Alert thresholds
-
-All thresholds are sourced from published clinical and occupational health references.
-
-### Physiological
-
-| Parameter | Normal | Caution | Critical | Source |
-|-----------|--------|---------|----------|--------|
-| SpO2 | ≥ 95% | 90–94% | < 90% | WMS 2024 Clinical Practice Guidelines |
-| Heart rate (high) | ≤ 100 bpm | 101–120 bpm | > 120 bpm | AHA tachycardia definition |
-| Heart rate (low) | ≥ 50 bpm | 40–49 bpm | < 40 bpm | Field medicine assessment |
-| Surface temp (high) | ≤ 35.5°C | 35.6–37.0°C | > 37.0°C | Ng et al. 2005 (IR forehead thermometry) |
-
-### Environmental
-
-| Parameter | Normal | Caution | Critical | Source |
-|-----------|--------|---------|----------|--------|
-| eCO2 | < 1000 ppm | 1000–2000 ppm | > 2000 ppm | International indoor air quality guidelines |
-| TVOC | < 220 ppb | 220–660 ppb | > 660 ppb | German Federal Environment Agency |
-| Ambient temp (high) | ≤ 26°C | 27–30°C | > 30°C | WHO housing guidelines / ASHRAE 55 |
-| Ambient temp (low) | ≥ 18°C | 15–17°C | < 15°C | WHO housing guidelines / ASHRAE 55 |
-| Humidity (high) | ≤ 60% | 61–70% | > 70% | ASHRAE 55 |
-| Humidity (low) | ≥ 30% | 20–29% | < 20% | ASHRAE 55 |
-
-Ambient light (BH1750) is displayed but does not trigger alerts — light levels are contextual and do not indicate a hazard in isolation.
-
-System state is determined by the most severe individual alert: any single CRITICAL reading makes the system state CRITICAL, regardless of how many other parameters are normal.
+The scientific target is the shared habitat atmosphere: whether a single, centrally placed, low-cost node can resolve crew occupancy rhythms directly from the air, and whether it can run reliably for a whole mission without intervention.
 
 ## Architecture
 
 ```
-Sensors (I2C) → app.py (Flask) → /api/vitals (JSON) → index.html (browser, polls every 2s)
+                    ┌──────────────────────────────┐
+   I²C bus 1 ──────►│                              │
+   (hardware,25kHz) │   logger.py  (headless)      │
+   SCD30            │   - reads all sensors @ 0.5Hz│
+   MLX90614         │   - per-sensor try/except    │───► SQLite
+   MAX30102         │   - NULL on fault, continue  │     readings
+                    │                              │     events
+   I²C bus 3 ──────►│   systemd: Restart=always    │        │
+   (software GPIO)  └──────────────────────────────┘        │
+   SGP30                                                    │
+   BME280                                                   │
+   BH1750            ┌──────────────────────────────┐       │
+                     │   monitor.py  (Flask)        │◄──────┘
+                     │   - reads latest DB row only │
+                     │   - no bus access            │───► browser
+                     │   - activity event markers   │     (LAN, :5001)
+                     │   systemd: Restart=on-failure│
+                     └──────────────────────────────┘
 ```
 
-The system is a single-file Flask application (`app.py`) with no database, no authentication, and no external dependencies beyond the sensor libraries. This is deliberate: the system is designed for field deployment where simplicity and reliability outweigh feature richness.
+The logger/monitor split is the central design decision. Acquisition owns the bus exclusively; the dashboard is a read-only consumer of the database. A crashed or restarted dashboard cannot interrupt logging.
 
-Each sensor has independent mock/real toggle flags. Setting a sensor's mock flag to `True` replaces its real reader with a random-value generator, allowing dashboard development and alert logic testing without hardware connected. Mock sensors display an amber `[MOCK]` indicator on the dashboard.
+**Process supervision:** both run as systemd units. `bionode-logger.service` uses `Restart=always` with a 15 s backoff and a 20 s pre-start delay for bus settling; `bionode-monitor.service` is ordered `After=` the logger and restarts on failure. Every restart during the mission was automatic and was written to the events table.
 
-## Hardware
+## Sensors (as flown)
 
-- Raspberry Pi 4 Model B
-- DFRobot Gravity MAX30102 Heart Rate & Oximeter Sensor (SEN0518) — JST connector
-- MLX90614 non-contact IR temperature sensor
-- SGP30 eCO2/TVOC air quality sensor
-- BME280 temperature/humidity/pressure sensor
-- BH1750 ambient light sensor
-- Breadboard with I2C bus distribution
+| Sensor | Measurement | Bus | Notes |
+|--------|-------------|-----|-------|
+| **SCD30** | **CO₂ (NDIR)**, temperature, relative humidity | 1 | Primary CO₂. True NDIR, not a proxy. Clock-stretching. |
+| MLX90614 | Surface temperature (non-contact IR) | 1 | |
+| BME280 | Temperature, relative humidity, barometric pressure | 3 | Redundant temp/RH against SCD30. Moved to software bus during bring-up. |
+| SGP30 | TVOC (+ eCO₂, demoted to proxy) | 3 | |
+| BH1750 | Illuminance | 3 | |
+| MAX30102 (DFRobot SEN0518) | Heart rate, SpO₂ | 1 | Contact-only spot readings; blank when unattended |
 
-### Wiring
+**Bus allocation was derived empirically, not guessed.** At a 2 s cadence the SCD30 and SGP30 were observed to interfere — alternating readings where one channel had data and the other did not. The fault was diagnosed by row-by-row comparison establishing that the two channels were *mutually exclusive* rather than *jointly absent*, which distinguishes bus contention from a shared upstream failure. Resolution: move the TVOC sensor to the software bus. The final layout places the clock-stretching SCD30 with the two most timing-tolerant sensors on the primary hardware bus, and the three most timing-sensitive sensors on the software bus. Primary bus baudrate is reduced to 25 kHz (`dtparam=i2c_arm_baudrate=25000`) to accommodate SCD30 clock stretching. All six sensors read cleanly in this configuration.
 
-Primary I2C bus (bus 1): GPIO 2 (SDA), GPIO 3 (SCL) — carries MAX30102, MLX90614, SGP30, BME280.
-
-Secondary I2C bus (bus 3): GPIO 17 (SDA), GPIO 27 (SCL) — carries BH1750 only. Created via device tree overlay in `/boot/firmware/config.txt`:
-
+Secondary software bus via device tree overlay:
 ```
 dtoverlay=i2c-gpio,bus=3,i2c_gpio_sda=17,i2c_gpio_scl=27
 ```
 
-All sensors operate at 3.3V.
+## Reliability design
+
+Each sensor is read inside its own error boundary. A sensor that fails to respond returns NULL for its channels; the logger writes the row and continues at cadence. No single sensor fault can stall the loop, block the bus, or halt the record. Impossible values are rejected at source. Power loss triggers automatic restart via systemd, and the restart is logged as an event.
+
+Temperature and relative humidity are measured **redundantly** by both the SCD30 and the BME280. This was designed in before the mission and is the reason a hardware fault cost no continuity.
+
+## Mission results — AAT-112
+
+**Window:** MT 00:00 mission day 1 (24 July 2026, 07:00 UTC) → same instant seven days later (31 July, 07:00 UTC). Exactly 168 hours, an integer number of day-cycles aligned to the crew's own clock, so the diurnal analysis is not distorted by a partial day. Pre-seal setup data is archived separately rather than discarded, and is available as an empty-habitat baseline.
+
+### Field reliability
+
+| Metric | Value | Definition |
+|---|---|---|
+| Readings logged | **302,227** | rows in the mission window |
+| Effective logging rate | **99.9%** | 302,227 ÷ (604,800 s ÷ 2 s) = 302,227 ÷ 302,400 |
+| Logging uptime | **99.85%** | 1 − (summed gaps > 10 s ÷ window). Total gap 15.4 min over 168 h |
+| Unexplained gaps | **0** | every gap > 10 s matched a logged restart in the events table |
+| Data lost to sensor fault | **0** | |
+
+Per-sensor coverage: four sensors at 100%; the CO₂ suite at 96.0% (NDIR per-sample data-ready gating, not a fault); the pressure/humidity sensor at 70.9%.
+
+**The one real fault.** The BME280 became intermittent from mission day two and was absent for a single continuous span of **48.9 hours** before spontaneously recovering. The fail-soft architecture contained it to one non-critical channel — barometric pressure. Because temperature and humidity were measured redundantly by the SCD30, continuity of both was preserved. The remaining five sensors and the logging rate were unaffected. All five brief restarts across the mission auto-recovered and were logged.
+
+### Environmental findings
+
+- CO₂ ranged 645–1719 ppm (mean 828, SD 88), above the 1000 ppm comfort guideline during only 3.7% of the mission, far below occupational limits throughout — consistent with continuous ventilation.
+- A repeatable diurnal cycle of ≈236 ppm peak-to-trough amplitude.
+- Common-area CO₂ fell by a mean of 100 ppm during crew sleep, **on all seven nights** (paired *t*-test, p = 0.0004) — a clear atmospheric signature of collective occupancy. Sleep mean 744 ppm vs. active 843 ppm; the sleep value matches the independent diurnal trough (721 ppm), two methods converging.
+- Discrete short events (individual meals) produced **no** consistent signature. This is a property of the environment, not instrument insensitivity: continuous ventilation flushes a ~30-minute load before it accumulates, while multi-hour occupancy changes reach a genuinely different steady state. The dichotomy delineates what single-zone habitat monitoring can and cannot resolve.
+
+### Calibration note
+
+The SCD30 reads ≈2.5 °C warmer than the independent BME280, computed as the mean difference between the two temperature channels over the window and consistent with the datasheet's documented self-heating. Ambient temperature is therefore reported from the cooler, independent sensor.
+
+## Known limitations
+
+- **SGP30 eCO₂ is not a CO₂ measurement.** It is estimated from hydrogen and ethanol concentrations, ≈±15% accuracy. Retained only as a secondary trend channel and labelled PROXY on the dashboard. All CO₂ results come from the SCD30 NDIR sensor.
+- **Surface temperature ≠ core temperature.** The MLX90614 measures skin surface temperature, typically 2–4 °C below core. The system cannot infer core temperature.
+- **Ventilation rate was not instrumented.** The ventilation time-constant interpretation of the meal null result is physically well-motivated and consistent with the data, but was not independently verified by direct air-exchange measurement.
+- **Single-zone.** One centrally placed node samples the well-mixed common-area atmosphere. It cannot localize sources or resolve gradients between modules.
+- **Physiological channels are spot readings.** HR/SpO₂ require finger contact and are blank when unattended; they are not a continuous mission record. The DFRobot module runs its own PPG algorithm on an onboard MCU — this host does not perform signal processing. Readings run high against wrist-based devices and the module can briefly hold a stale value with no finger present; sanity filters reject impossible values but brief false positives remain possible.
+- **No authentication.** Anyone on the local network can view the dashboard.
 
 ## Setup
 
-### Prerequisites
+<details>
+<summary>Hardware, wiring, installation</summary>
 
-- Raspberry Pi 4 with I2C enabled (`raspi-config` → Interface Options → I2C)
-- Python 3.11+
-- Secondary I2C bus configured (see Wiring section)
+**Hardware:** Raspberry Pi 4 Model B · SCD30 NDIR CO₂ · SGP30 TVOC · BME280 · BH1750 · MLX90614 · DFRobot Gravity MAX30102 (SEN0518). All sensors at 3.3 V.
 
-### Installation
-
-```bash
-mkdir -p ~/bio_node_v2/templates
-cd ~/bio_node_v2
-python3 -m venv .venv
-source .venv/bin/activate
-
-pip install flask
-pip install RPi.GPIO
-pip install smbus
-pip install adafruit-circuitpython-sgp30
-pip install adafruit-circuitpython-mlx90614
-pip install adafruit-circuitpython-bme280
-pip install adafruit-circuitpython-bh1750
-pip install adafruit-extended-bus
-```
-
-The DFRobot MAX30102 driver (`DFRobot_BloodOxygen_S.py`) is included directly in the project root — it is not available via pip.
-
-### Running
+**Wiring:** primary I²C bus 1 on GPIO 2/3 (SCD30, MLX90614, MAX30102); software bus 3 on GPIO 17/27 (SGP30, BME280, BH1750). Apply the overlay and baudrate lines from `MISSION_config.txt` to `/boot/firmware/config.txt`.
 
 ```bash
-cd ~/bio_node_v2
-source .venv/bin/activate
-python app.py
+python3 -m venv .venv && source .venv/bin/activate
+pip install flask adafruit-blinka adafruit-extended-bus \
+  adafruit-circuitpython-scd30 adafruit-circuitpython-sgp30 \
+  adafruit-circuitpython-mlx90614 adafruit-circuitpython-bme280 \
+  adafruit-circuitpython-bh1750
+sqlite3 data/aat112_mission.db < schema.sql   # logger auto-creates this on first run if absent
 ```
 
-Dashboard is accessible at `http://<pi-ip>:5000` from any device on the same network.
+The DFRobot driver (`DFRobot_BloodOxygen_S.py`) is vendored in the project root; it is not on PyPI.
 
-### Verifying sensors
+**Verify:** `i2cdetect -y 1` and `i2cdetect -y 3`. Per-sensor test scripts in `tests/`.
 
-```bash
-i2cdetect -y 1    # should show 0x57, 0x58, 0x5a, 0x77
-i2cdetect -y 3    # should show 0x23
-```
+**Run:** install `bionode-logger.service` and `bionode-monitor.service` to `/etc/systemd/system/`, then `systemctl enable --now`. Dashboard on port **5001** (`app.py`, the pre-mission single-process build, used 5000).
 
-Individual sensor test scripts are in `tests/`.
+</details>
 
 ## Project structure
 
 ```
-bio_node_v2/
-├── app.py                         # main application
-├── DFRobot_BloodOxygen_S.py       # MAX30102 DFRobot driver (modified)
-├── templates/
-│   └── index.html                 # dashboard frontend
-├── tests/
-│   ├── test_sgp30.py
-│   ├── test_mlx90614.py
-│   ├── test_max30102.py
-│   ├── test_bme280.py
-│   └── test_bh1750.py
-└── README.md
+logger.py                  # headless acquisition → SQLite
+monitor.py                 # Flask dashboard (DB reader, no bus access)
+schema.sql                 # readings + events tables
+frc.py                     # SCD30 forced recalibration
+hr_logger.py / hr_monitor.py
+app.py                     # single-process bench build (pre-mission)
+DFRobot_BloodOxygen_S.py   # vendored MAX30102 driver
+bionode-logger.service     # systemd units
+bionode-monitor.service
+MISSION_config.txt         # as-flown /boot/firmware/config.txt
+templates/index.html
+tests/                     # per-sensor verification scripts
 ```
 
-## Known limitations
+## Publications
 
-- **Heart rate accuracy:** The DFRobot MAX30102 module reads approximately 20–30 bpm higher than wrist-based devices (e.g., Garmin) in informal testing. This is attributed to finger pressure variation and the module's onboard algorithm. Readings are directionally correct for trend monitoring.
-- **Ghost readings:** The MAX30102 may briefly report heart rate and SpO2 values when no finger is present, due to the onboard MCU holding the last valid reading. Software sanity filters reject impossible values (HR > 200, SpO2 < 70, zero values) but brief false positives may still occur.
-- **SGP30 is not a CO2 sensor:** eCO2 is estimated from hydrogen/ethanol concentrations. It is not equivalent to NDIR CO2 measurement. The ~±15% accuracy makes it suitable for trend detection and threshold alerting in enclosed spaces, not for calibrated atmospheric measurement.
-- **Surface temperature ≠ core body temperature:** The MLX90614 measures skin surface temperature, which runs 2–4°C below core temperature. The system cannot infer core temperature from surface readings.
-- **Low-end surface temperature alerts disabled:** The low-temperature thresholds (< 28°C caution, < 30°C critical) are disabled because they trigger on room ambient temperature when the sensor is not aimed at a person. Automatic detection of "sensor aimed at skin vs. ambient" is not implemented in V2.
-- **No data persistence:** Readings are not logged to disk. Each session is ephemeral. CSV logging is planned for a future version.
-- **Single-user system:** The dashboard has no authentication. Anyone on the local network can view the data.
+- **Accepted conference poster** — *Continuous Environmental Monitoring of a Crewed Analog Habitat with a Low-Cost Sensor Node: Diurnal CO₂ Dynamics and Field Reliability.* IXth Space Resources Conference, AGH University of Krakow, 3–4 September 2026, poster P55.
+- **Manuscript in preparation** — A. Georgoulas, A. Kołodziejczyk, M. Harasymczuk.
 
-## Context
+All environmental data were recorded to the local database and are available from the authors. Crew activity, sleep and meal records used for Mission-Time alignment were collected as part of AAT-112 operations; all participant-derived data are used in anonymized, aggregate form.
 
-BioNode V2 is the technical evolution of a diploma/thesis project (AUTH, Electrical & Computer Engineering) that demonstrated passive physiological data acquisition and display. V2 upgrades the original concept from a display system into a threshold-based early-warning monitoring node with environmental sensing, alert logic, and a remotely accessible dashboard.
+## Future work
 
-The project serves as:
-- An engineering portfolio piece demonstrating embedded sensor integration, I2C bus management, and real-time web-based monitoring
-- A field-medicine credibility tool relevant to Wilderness First Responder (WFR) contexts
-- A prototype monitoring node for enclosed habitat environments such as the LunAres analog space habitat
+Distributed multi-node network for spatial resolution of sources and gradients; validated portable operation (battery with simultaneous charging, already bench-validated) for mobile survey and platform-mounted deployment; longer campaigns to establish how far these signatures generalize across crews, seasons and ventilation regimes.
 
 ## Disclaimer
 
-This system is not a medical device. Heart rate, SpO2, and temperature readings are approximate and are not suitable for clinical diagnosis or treatment decisions. All physiological thresholds are provided for trend monitoring and early-warning purposes only. Do not rely on this system for medical care.
+This system is not a medical device. Physiological readings are approximate and are not suitable for clinical diagnosis or treatment decisions. All thresholds are for trend monitoring and early warning only.
 
 ## License
 
